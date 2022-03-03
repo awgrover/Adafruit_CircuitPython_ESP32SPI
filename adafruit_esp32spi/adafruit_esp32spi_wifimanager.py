@@ -84,9 +84,16 @@ class ESPSPI_WiFiManager:
             print("Resetting ESP32")
         self.esp.reset()
 
-    def connect(self):
+    def connect(self, timeout = -1):
         """
         Attempt to connect to WiFi using the current settings
+        timeout == -1 means never time-out (retry forever)
+            will only return when connection is made
+        timeout == 0 means no retry: async connect
+            check thiswifi.esp.is_connected
+        timeout == > 0 means retry for n seconds
+            check thiswifi.esp.is_connected
+        Note that thiswifi.esp.is_connected requires a write/read to the esp32spi chip.
         """
         if self.debug:
             if self.esp.status == adafruit_esp32spi.WL_IDLE_STATUS:
@@ -99,9 +106,9 @@ class ESPSPI_WiFiManager:
                     % (str(access_pt["ssid"], "utf-8"), access_pt["rssi"])
                 )
         if self._connection_type == ESPSPI_WiFiManager.NORMAL:
-            self.connect_normal()
+            self.connect_normal(timeout)
         elif self._connection_type == ESPSPI_WiFiManager.ENTERPRISE:
-            self.connect_enterprise()
+            self.connect_enterprise(timeout)
         else:
             raise TypeError("Invalid WiFi connection type specified")
 
@@ -126,12 +133,13 @@ class ESPSPI_WiFiManager:
             )
         return (self.ssid, self.password)
 
-    def connect_normal(self):
+    def connect_normal(self, timeout=-1):
         """
         Attempt a regular style WiFi connection
         """
         failure_count = 0
         (ssid, password) = self._get_next_ap()
+        start = time.monotonic_ns()
         while not self.esp.is_connected:
             try:
                 if self.debug:
@@ -148,6 +156,8 @@ class ESPSPI_WiFiManager:
                     (ssid, password) = self._get_next_ap()
                     self.reset()
                 continue
+            if timeout != -1 && time.monotonic_ns() - start > (timeout * 1000000000):
+                break
 
     def create_ap(self):
         """
@@ -178,7 +188,7 @@ class ESPSPI_WiFiManager:
                 continue
         print("Access Point created! Connect to ssid:\n {}".format(self.ssid))
 
-    def connect_enterprise(self):
+    def connect_enterprise(self, timeout=-1):
         """
         Attempt an enterprise style WiFi connection
         """
@@ -188,6 +198,7 @@ class ESPSPI_WiFiManager:
         self.esp.wifi_set_entusername(bytes(self.ent_user, "utf-8"))
         self.esp.wifi_set_entpassword(bytes(self.ent_password, "utf-8"))
         self.esp.wifi_set_entenable()
+        start = time.monotonic_ns()
         while not self.esp.is_connected:
             try:
                 if self.debug:
@@ -206,6 +217,8 @@ class ESPSPI_WiFiManager:
                     failure_count = 0
                     self.reset()
                 continue
+            if timeout != -1 && time.monotonic_ns() - start > (timeout * 1000000000):
+                break
 
     def get(self, url, **kw):
         """
