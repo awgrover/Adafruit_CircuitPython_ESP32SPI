@@ -13,6 +13,7 @@ WiFi Manager for making ESP32 SPI as WiFi much easier
 
 # pylint: disable=no-name-in-module
 
+import time
 from time import sleep
 from micropython import const
 import adafruit_requests as requests
@@ -59,6 +60,7 @@ class ESPSPI_WiFiManager:
         self.statuspix = status_pixel
         self.pixel_status(0)
         self._ap_index = 0
+        self.failure_count = 0
 
         # Check for WPA2 Enterprise keys in the secrets dictionary and load them if they exist
         if secrets.get("ent_ssid"):
@@ -81,7 +83,7 @@ class ESPSPI_WiFiManager:
         Perform a hard reset on the ESP32
         """
         if self.debug:
-            print("Resetting ESP32")
+            print("   Resetting ESP32")
         self.esp.reset()
 
     def connect(self, timeout = -1):
@@ -90,12 +92,12 @@ class ESPSPI_WiFiManager:
         timeout == -1 means never time-out (retry forever)
             will only return when connection is made
         timeout == 0 means no retry: async connect
-            check thiswifi.esp.is_connected
+            check thiswifi.is_connected
         timeout == > 0 means retry for n seconds
-            check thiswifi.esp.is_connected
-        Note that thiswifi.esp.is_connected requires a write/read to the esp32spi chip.
+            check thiswifi.is_connected
+        Note that thiswifi.is_connected requires a write/read to the esp32spi chip.
         """
-        if self.debug:
+        if False and self.debug:
             if self.esp.status == adafruit_esp32spi.WL_IDLE_STATUS:
                 print("ESP32 found and in idle mode")
             print("Firmware vers.", self.esp.firmware_version)
@@ -137,27 +139,46 @@ class ESPSPI_WiFiManager:
         """
         Attempt a regular style WiFi connection
         """
-        failure_count = 0
         (ssid, password) = self._get_next_ap()
+        if self.debug: 
+            print("trying ",ssid)
         start = time.monotonic_ns()
         while not self.esp.is_connected:
             try:
                 if self.debug:
                     print("Connecting to AP...")
                 self.pixel_status((100, 0, 0))
-                self.esp.connect_AP(bytes(ssid, "utf-8"), bytes(password, "utf-8"))
-                failure_count = 0
-                self.pixel_status((0, 100, 0))
+
+                # by default, this will wait 10 seconds to see if it connects
+                # if we don't connect in timeout-seconds (especially timeout==0),
+                ## we'll get an exception RuntimeError("Failed to connect to ssid", ssid)
+                # which increments failure_count
+                self.esp.connect_AP(bytes(ssid, "utf-8"), bytes(password, "utf-8"), timeout_s=None if timeout==-1 else timeout)
+
+                self.is_connected()
             except (ValueError, RuntimeError) as error:
-                print("Failed to connect, retrying\n", error)
-                failure_count += 1
-                if failure_count >= self.attempts:
-                    failure_count = 0
+                print("Failed to connect, retrying ",self.failure_count,"\n", error)
+                self.failure_count += 1
+                if self.failure_count >= self.attempts:
+                    self.failure_count = 0
                     (ssid, password) = self._get_next_ap()
                     self.reset()
-                continue
-            if timeout != -1 && time.monotonic_ns() - start > (timeout * 1000000000):
+            if (self.debug): print("Using timeout? ", timeout != -1, " = ",timeout)
+            if timeout != -1:
                 break
+
+    @property
+    def is_connected(self):
+        """
+        Use is_connected() if you provided a `timeout` argument to connect(), connect_normal(), or connect_enterprise().
+        Otherwise you can get excess esp.reset()
+        """
+        if self.esp.is_connected:
+            self.pixel_status((0, 100, 0)) # will be a lie if not connected by timeout
+            self.failure_count = 0
+            return True
+        else:
+            False
 
     def create_ap(self):
         """
@@ -165,7 +186,7 @@ class ESPSPI_WiFiManager:
         Uses SSID and optional passphrase from the current settings
         Other WiFi devices will be able to connect to the created Access Point
         """
-        failure_count = 0
+        self.failure_count = 0
         while not self.esp.ap_listening:
             try:
                 if self.debug:
@@ -177,13 +198,13 @@ class ESPSPI_WiFiManager:
                     )
                 else:
                     self.esp.create_AP(bytes(self.ssid, "utf-8"), None)
-                failure_count = 0
+                self.failure_count = 0
                 self.pixel_status((0, 100, 0))
             except (ValueError, RuntimeError) as error:
                 print("Failed to create access point\n", error)
-                failure_count += 1
-                if failure_count >= self.attempts:
-                    failure_count = 0
+                self.failure_count += 1
+                if self.failure_count >= self.attempts:
+                    self.failure_count = 0
                     self.reset()
                 continue
         print("Access Point created! Connect to ssid:\n {}".format(self.ssid))
@@ -191,13 +212,14 @@ class ESPSPI_WiFiManager:
     def connect_enterprise(self, timeout=-1):
         """
         Attempt an enterprise style WiFi connection
+        nb: 
         """
-        failure_count = 0
+        self.failure_count = 0
         self.esp.wifi_set_network(bytes(self.ent_ssid, "utf-8"))
         self.esp.wifi_set_entidentity(bytes(self.ent_ident, "utf-8"))
         self.esp.wifi_set_entusername(bytes(self.ent_user, "utf-8"))
         self.esp.wifi_set_entpassword(bytes(self.ent_password, "utf-8"))
-        self.esp.wifi_set_entenable()
+        self.esp.wifi_set_entenable() # start connection attempt?
         start = time.monotonic_ns()
         while not self.esp.is_connected:
             try:
@@ -207,17 +229,17 @@ class ESPSPI_WiFiManager:
                     )
                 self.pixel_status((100, 0, 0))
                 sleep(1)
-                failure_count = 0
+                self.failure_count = 0
                 self.pixel_status((0, 100, 0))
                 sleep(1)
             except (ValueError, RuntimeError) as error:
                 print("Failed to connect, retrying\n", error)
-                failure_count += 1
-                if failure_count >= self.attempts:
-                    failure_count = 0
+                self.failure_count += 1
+                if self.failure_count >= self.attempts:
+                    self.failure_count = 0
                     self.reset()
                 continue
-            if timeout != -1 && time.monotonic_ns() - start > (timeout * 1000000000):
+            if timeout != -1 and time.monotonic_ns() - start > (timeout * 1000000000):
                 break
 
     def get(self, url, **kw):

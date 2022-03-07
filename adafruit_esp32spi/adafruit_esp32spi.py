@@ -505,10 +505,10 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
             self.reset()
             return False
 
-    def connect(self, secrets):
+    def connect(self, secrets, timeout_s=10):
         """Connect to an access point using a secrets dictionary
         that contains a 'ssid' and 'password' entry"""
-        self.connect_AP(secrets["ssid"], secrets["password"])
+        self.connect_AP(secrets["ssid"], secrets["password"], 10 if timeout_s == None else timeout_s)
 
     def connect_AP(self, ssid, password, timeout_s=10):  # pylint: disable=invalid-name
         """
@@ -519,7 +519,11 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
         :param ssid: the SSID to connect to
         :param passphrase: the password of the access point
         :param timeout_s: number of seconds until we time out and fail to create AP
+            nb: precision of timeout decreases over long uptime
         """
+        if timeout_s==None:
+            timeout_s = 10
+
         if self._debug:
             print("Connect to AP", ssid, password)
         if isinstance(ssid, str):
@@ -531,10 +535,12 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
         else:
             self.wifi_set_network(ssid)
         times = time.monotonic()
-        while (time.monotonic() - times) < timeout_s:  # wait up until timeout
+        while True:  # wait up until timeout
             stat = self.status
             if stat == WL_CONNECTED:
                 return stat
+            if (time.monotonic() - times) >= timeout_s:
+                break
             time.sleep(0.05)
         if stat in (WL_CONNECT_FAILED, WL_CONNECTION_LOST, WL_DISCONNECTED):
             raise RuntimeError("Failed to connect to ssid", ssid)
