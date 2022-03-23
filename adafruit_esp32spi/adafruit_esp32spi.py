@@ -132,6 +132,8 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
     UDP_MODE = const(1)
     TLS_MODE = const(2)
 
+    DefaultConnectionTimeout = 10 # seconds, you may change this
+
     # pylint: disable=too-many-arguments
     def __init__(
         self, spi, cs_pin, ready_pin, reset_pin, gpio0_pin=None, *, debug=False
@@ -505,12 +507,12 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
             self.reset()
             return False
 
-    def connect(self, secrets, timeout_s=10):
+    def connect(self, secrets, timeout_s=DefaultConnectionTimeout):
         """Connect to an access point using a secrets dictionary
         that contains a 'ssid' and 'password' entry"""
-        self.connect_AP(secrets["ssid"], secrets["password"], 10 if timeout_s == None else timeout_s)
+        self.connect_AP(secrets["ssid"], secrets["password"], DefaultConnectionTimeout if timeout_s == None else timeout_s)
 
-    def connect_AP(self, ssid, password, timeout_s=10):  # pylint: disable=invalid-name
+    def connect_AP(self, ssid, password, timeout_s=DefaultConnectionTimeout):  # pylint: disable=invalid-name
         """
         Connect to an access point with given name and password.
         Will wait until specified timeout seconds and return on success
@@ -522,7 +524,7 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
             nb: precision of timeout decreases over long uptime
         """
         if timeout_s==None:
-            timeout_s = 10
+            timeout_s = DefaultConnectionTimeout
 
         if self._debug:
             print("Connect to AP", ssid, password)
@@ -537,7 +539,7 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
         times = time.monotonic()
         while True:  # wait up until timeout
             stat = self.status
-            if stat == WL_CONNECTED:
+            if stat == WL_CONNECTED or timeout_s == 0:
                 return stat
             if (time.monotonic() - times) >= timeout_s:
                 break
@@ -549,7 +551,7 @@ class ESP_SPIcontrol:  # pylint: disable=too-many-public-methods, too-many-insta
         raise RuntimeError("Unknown error 0x%02X" % stat)
 
     def create_AP(
-        self, ssid, password, channel=1, timeout=10
+        self, ssid, password, channel=1, timeout=DefaultConnectionTimeout
     ):  # pylint: disable=invalid-name
         """
         Create an access point with the given name, password, and channel.

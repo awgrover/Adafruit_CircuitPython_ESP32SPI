@@ -155,7 +155,7 @@ class ESPSPI_WiFiManager:
                 # which increments failure_count
                 self.esp.connect_AP(bytes(ssid, "utf-8"), bytes(password, "utf-8"), timeout_s=None if timeout==-1 else timeout)
 
-                self.is_connected()
+                self.is_connected
             except (ValueError, RuntimeError) as error:
                 print("Failed to connect, retrying ",self.failure_count,"\n", error)
                 self.failure_count += 1
@@ -170,7 +170,7 @@ class ESPSPI_WiFiManager:
     @property
     def is_connected(self):
         """
-        Use is_connected() if you provided a `timeout` argument to connect(), connect_normal(), or connect_enterprise().
+        Use is_connected if you provided a `timeout` argument to connect(), connect_normal(), or connect_enterprise().
         Otherwise you can get excess esp.reset()
         """
         if self.esp.is_connected:
